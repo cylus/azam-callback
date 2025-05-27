@@ -7,11 +7,10 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
-// Initialize Firebase Admin
+// Initialize Firebase Admin SDK
 admin.initializeApp({
   credential: admin.credential.cert({
     type: "service_account",
@@ -29,29 +28,45 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// Callback endpoint for AzamPay
 app.post('/azam-callback', async (req, res) => {
   console.log('🔔 Received AzamPay Callback:', req.body);
 
   try {
-    const { referenceId, status, amount, ...rest } = req.body;
+    const {
+      amount,
+      fspReferenceId,
+      message,
+      msisdn,
+      operator,
+      reference,
+      submerchantAcc,
+      transactionstatus,
+      utilityref,
+      ...rest
+    } = req.body;
 
-    if (!referenceId || !status) {
-      console.warn('❌ Missing referenceId or status in callback');
-      return res.status(400).json({ message: 'Missing referenceId or status' });
+    if (!reference || !transactionstatus) {
+      return res.status(400).json({ message: 'Missing required fields' });
     }
 
+    // Update Firestore payment doc keyed by reference (bookId)
     const paymentData = {
-      referenceId,
-      status,
       amount: parseFloat(amount || 0),
+      fspReferenceId: fspReferenceId || null,
+      message: message || '',
+      msisdn: msisdn || '',
+      operator: operator || '',
+      reference,
+      submerchantAcc: submerchantAcc || null,
+      transactionstatus,
+      utilityref: utilityref || null,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      raw: rest, // store any extra fields just in case
+      raw: rest,
     };
 
-    await db.collection('payments').doc(referenceId).set(paymentData, { merge: true });
+    await db.collection('payments').doc(reference).set(paymentData, { merge: true });
 
-    console.log('✅ Payment updated successfully for:', referenceId);
+    console.log('✅ Payment updated successfully for:', reference);
     res.status(200).json({ message: 'Payment updated successfully.' });
   } catch (err) {
     console.error('❌ Error handling callback:', err);
@@ -59,12 +74,10 @@ app.post('/azam-callback', async (req, res) => {
   }
 });
 
-// Health check
 app.get('/', (req, res) => {
   res.send('AzamPay Callback Server is Running ✅');
 });
 
-// Start server
 app.listen(port, () => {
-  console.log(`🚀 Server is running on http://localhost:${port}`);
+  console.log(`🚀 Server running on http://localhost:${port}`);
 });
