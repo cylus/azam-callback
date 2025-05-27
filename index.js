@@ -1,3 +1,5 @@
+// index.js
+
 const express = require('express');
 const admin = require('firebase-admin');
 const bodyParser = require('body-parser');
@@ -7,6 +9,7 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 
@@ -28,6 +31,10 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
+/**
+ * AzamPay callback endpoint to receive payment updates.
+ * Expects JSON payload from AzamPay with payment info.
+ */
 app.post('/azam-callback', async (req, res) => {
   console.log('🔔 Received AzamPay Callback:', req.body);
 
@@ -45,11 +52,21 @@ app.post('/azam-callback', async (req, res) => {
       ...rest
     } = req.body;
 
+    // Validate required fields
     if (!reference || !transactionstatus) {
-      return res.status(400).json({ message: 'Missing required fields' });
+      return res.status(400).json({ message: 'Missing required fields: reference or transactionstatus' });
     }
 
-    // Update Firestore payment doc keyed by reference (bookId)
+    console.log('Transaction Status:', transactionstatus);
+    console.log('Payment reference:', reference);
+
+    // You can choose to handle only successful payments here or save all statuses
+    if (transactionstatus !== 'SUCCESS') {
+      console.warn(`Payment status is not SUCCESS. Status: ${transactionstatus}`);
+      // Optionally respond but still store info for record-keeping
+    }
+
+    // Prepare data to store/update in Firestore
     const paymentData = {
       amount: parseFloat(amount || 0),
       fspReferenceId: fspReferenceId || null,
@@ -61,16 +78,17 @@ app.post('/azam-callback', async (req, res) => {
       transactionstatus,
       utilityref: utilityref || null,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      raw: rest,
+      raw: rest, // store any extra fields for debugging
     };
 
+    // Store or merge the payment data in 'payments' collection, document keyed by 'reference'
     await db.collection('payments').doc(reference).set(paymentData, { merge: true });
 
     console.log('✅ Payment updated successfully for:', reference);
-    res.status(200).json({ message: 'Payment updated successfully.' });
-  } catch (err) {
-    console.error('❌ Error handling callback:', err);
-    res.status(500).json({ message: 'Error updating payment.' });
+    return res.status(200).json({ message: 'Payment updated successfully.' });
+  } catch (error) {
+    console.error('❌ Error handling callback:', error);
+    return res.status(500).json({ message: 'Internal server error while updating payment.' });
   }
 });
 
